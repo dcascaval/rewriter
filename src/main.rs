@@ -118,18 +118,24 @@ fn make_rules() -> Vec<Rewrite<GeomLanguage, GeomAnalysis>> {
     ]
 }
 
-pub struct InverseAstSize;
-impl<L: Language> CostFunction<L> for InverseAstSize {
+pub struct ParametrizationCost;
+
+impl CostFunction<GeomLanguage> for ParametrizationCost {
     type Cost = i64;
-    fn cost<C>(&mut self, enode: &L, mut costs: C) -> Self::Cost
+    fn cost<C>(&mut self, enode: &GeomLanguage, mut costs: C) -> Self::Cost
     where
         C: FnMut(Id) -> Self::Cost,
     {
-        enode.fold(0, |sum, id| sum - costs(id))
+        let op_cost = match enode {
+          GeomLanguage::Num(n) => if *n != 1 { 1 } else {0},
+          GeomLanguage::Add(_) => 0,
+          _ => 10
+        };
+        enode.fold(op_cost, |sum,id| sum + costs(id))
     }
 }
 
-fn run_search(s: &str) -> () {
+fn run_search<Cost : CostFunction<GeomLanguage>>(s: &str, cost: Cost) -> () {
     let expr = s.parse().unwrap();
     let runner = Runner::<GeomLanguage, GeomAnalysis>::default()
         .with_expr(&expr)
@@ -137,12 +143,13 @@ fn run_search(s: &str) -> () {
     let root = runner.roots[0];
 
     // Get the biggest one
-    let extractor = Extractor::new(&runner.egraph, InverseAstSize);
+    let extractor = Extractor::new(&runner.egraph, cost);
     let (_, best) = extractor.find_best(root);
     println!("Rewrote {} to {}", expr, best);
 }
 
 fn main() {
-    run_search("(translate (point 5 5) (point 2 2))");
-    run_search("(evaluate (line (point 0 0) (point 10 10)) (/ 1 10))");
+    run_search("(translate (point 5 5) (point 2 2))", AstSize);
+    run_search("(evaluate (line (point 0 0) (point 10 10)) (/ 1 10))", AstSize);
+    run_search( "4", ParametrizationCost)
 }
