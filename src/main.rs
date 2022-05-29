@@ -15,12 +15,46 @@ define_language! {
       "chamfer" = Chamfer([Id; 3]), // Polygon, Vertex, Radius -> Polygon (vertex must be on polygon)
       "translate" = Translate([Id; 2]), // Element, Vector -> Element (vector is point)
       "scale" = Scale([Id; 3]), // Element, origin, num -> Element (origin is point)
-      Let(Symbol, [Id; 1]),
+      "let" = Let([Id; 2]), // Symbol, Expr -> let binding
       Symbol(Symbol),
   }
 }
 
-fn make_rules() -> Vec<Rewrite<GeomLanguage, ()>> {
+
+impl GeomLanguage {
+  fn num(&self) -> Option<i32> {
+    match self {
+        GeomLanguage::Num(n) => Some(*n),
+        _ => None,
+    }
+}
+}
+
+type EGraph = egg::EGraph<GeomLanguage, GeomAnalysis>;
+
+#[derive(Default)]
+struct GeomAnalysis;
+
+#[derive(Debug)]
+struct GeomData {
+
+}
+
+impl Analysis<GeomLanguage> for GeomAnalysis {
+    type Data = GeomData;
+
+    fn make(egraph: &egg::EGraph<GeomLanguage, Self>, enode: &GeomLanguage) -> Self::Data {
+        todo!()
+    }
+
+    fn merge(&mut self, a: &mut Self::Data, b: Self::Data) -> DidMerge {
+        todo!()
+    }
+}
+
+
+
+fn make_rules() -> Vec<Rewrite<GeomLanguage, GeomAnalysis>> {
   vec![
       // These are all useful to us to generally widen the space but won't directly be responsible for much
   // since they are _actually_ equivalent for all a,b instead of fake-equivalent for some constants.
@@ -63,7 +97,7 @@ impl<L: Language> CostFunction<L> for InverseAstSize {
 
 fn run_search(s: &str) -> () {
   let expr = s.parse().unwrap();
-  let runner = Runner::default().with_expr(&expr).run(&make_rules());
+  let runner = Runner::<GeomLanguage, GeomAnalysis>::default().with_expr(&expr).run(&make_rules());
   let root = runner.roots[0];
 
   // Get the biggest one
