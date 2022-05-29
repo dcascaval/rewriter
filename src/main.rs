@@ -21,9 +21,9 @@ define_language! {
 }
 
 fn make_rules() -> Vec<Rewrite<GeomLanguage, ()>> {
-  // These are all useful to us to generally widen the space but won't directly be responsible for much
-  // since they are _actually_ equivalent for all a,b instead of fake-equivalent for some constants.
   vec![
+      // These are all useful to us to generally widen the space but won't directly be responsible for much
+  // since they are _actually_ equivalent for all a,b instead of fake-equivalent for some constants.
       rewrite!("commute-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
       rewrite!("commute-mul"; "(* ?a ?b)" => "(* ?b ?a)"),
       rewrite!("add-0"; "(+ ?a 0)" => "?a"),
@@ -38,13 +38,42 @@ fn make_rules() -> Vec<Rewrite<GeomLanguage, ()>> {
       rewrite!("translate-0"; "(translate ?a (point 0 0))" => "?a"),
       rewrite!("scale-1"; "(scale ?a ?b 1)" => "?a"),
       rewrite!("extrudepoly-0"; "(extrudepoly ?p ?l 0)" => "?p"),
-      rewrite!("chamfer-0"; "(chamfer ?p ?v 0)" => "?p")
+      rewrite!("chamfer-0"; "(chamfer ?p ?v 0)" => "?p"),
+
+     // And at this point we're basically giving an interpereter to decompose expressions
+     rewrite!("translate-pt"; "(translate (point ?x ?y) (point ?dx ?dy))" => "(point (+ ?x ?dx) (+ ?y ?dy))"),
+     rewrite!("translate-ln"; "(translate (line ?a ?b) ?v)" => "(line (translate ?a ?v) (translate ?b ?v))"),
+     rewrite!("evaluate-pt"; "(evaluate (line (point ?x1 ?y1) (point ?x2 ?y2)) ?t)" =>
+          "(point (+ (* ?x2 ?t) (* ?x1 (- 1 ?t)))
+                  (+ (* ?y2 ?t) (* ?y1 (- 1 ?t))))"),
   ]
 }
 
+pub struct InverseAstSize;
+impl<L: Language> CostFunction<L> for InverseAstSize {
+  type Cost = i64;
+  fn cost<C>(&mut self, enode: &L, mut costs: C) -> Self::Cost
+  where
+      C: FnMut(Id) -> Self::Cost,
+  {
+      enode.fold(0, |sum, id| sum - costs(id))
+  }
+}
+
+
+fn run_search(s: &str) -> () {
+  let expr = s.parse().unwrap();
+  let runner = Runner::default().with_expr(&expr).run(&make_rules());
+  let root = runner.roots[0];
+
+  // Get the biggest one
+  let extractor = Extractor::new(&runner.egraph, InverseAstSize);
+  let (_, best) = extractor.find_best(root);
+  println!("Rewrote {} to {}", expr, best);
+}
 
 
 fn main() {
-
+  run_search("(translate (point 5 5) (point 2 2))");
   println!("Hello, world!");
 }
