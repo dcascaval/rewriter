@@ -1,4 +1,4 @@
-#lang rosette
+#lang rosette/safe
 
 (require rosette/lib/destruct)
 
@@ -13,14 +13,15 @@
 (define ARITY 3) ; Inputs of length 3
 (define DEPTH 3) ; ASTs of depth 3
 
-(define (nonzero element) element)
+(define (dz a b) ; Cannot use this because solver will be sad
+  (if (= b 0) 0 (/ a b)))
 
 (define (interpret input expr)
   (destruct expr
             [ (add a b) (+ (interpret input a) (interpret input b)) ] ; 0
             [ (sub a b) (- (interpret input a) (interpret input b)) ] ; 1
             [ (mul a b) (* (interpret input a) (interpret input b)) ] ; 2
-            [ (div a b) (/ (interpret input a) (nonzero (interpret input b))) ] ; 3
+            [ (div a b) (/ (interpret input a) (interpret input b)) ] ; 3
             [ (idx i) (list-ref input i) ]))                          ; 4 -> (4+arity-1)
 
 (define (interpret-exprs exprs input)
@@ -32,8 +33,14 @@
 (define (choice-variable)
   (begin
     (define-symbolic* c integer?)
-    (assert (&& (>= c 0) (< c (+ 4 ARITY)) (not (eq? c 3))))
+    (assert (&& (>= c 0) (< c (+ 4 ARITY))
+                (not (= c 3)))) ; Outlaw division
     c))
+
+(define (build-list n f)
+  (define (bl-rec idx)
+    (if (= idx n) '() (cons (f idx) (bl-rec (+ idx 1)))))
+  (bl-rec 0))
 
 (define (input-sequence)
   (build-list ARITY (lambda (_) (input-variable))))
