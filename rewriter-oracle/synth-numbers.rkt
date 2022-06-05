@@ -30,11 +30,38 @@
 (define (choice-variable)
   (begin
     (define-symbolic* c integer?)
-    (assert (&& (>= 0 c) (< (+ 4 ARITY) c)))
+    (assert (&& (>= c 0) (< c (+ 4 ARITY))))
     c))
 
 (define (input-sequence)
-  (build-list ARITY (lambda (k) (input-variable))))
+  (build-list ARITY (lambda (_) (input-variable))))
+
+(define (make-ast heap depth index)
+  ; (printf "depth ~a index ~a\n" depth index)
+  (let
+      ([choice-var (list-ref heap index) ])
+    (if (= 1 depth)
+        (begin
+          (assert (>= choice-var 4))
+          (idx (- choice-var 4)))
+        (let
+            ([left (make-ast heap (- depth 1) (+ (* 2 index) 1)) ]
+             [right (make-ast heap (- depth 1) (+ (* 2 index) 2)) ])
+          (cond
+            [(= choice-var 0) (add left right)]
+            [(= choice-var 1) (sub left right)]
+            [(= choice-var 2) (mul left right)]
+            [(= choice-var 3) (div left right)]
+            [else (idx (- choice-var 4))])
+          ))))
+
+(define (make-heap depth)
+  (build-list (- (expt 2 depth) 1) (lambda (_) (choice-variable))))
+
+
+(define (make-graph arity depth)
+  (build-list arity (lambda (_)
+                      (make-ast (make-heap depth) depth 0))))
 
 (define (lst-equals l1 l2)
   (andmap eq? l1 l2))
@@ -42,38 +69,14 @@
 (define (exists-good-input graph input good-inputs good-outputs)
   (andmap
    (lambda (good-input good-output)
+     ;  (printf "in: ~a out: ~a symbolic:~a\n" good-input good-output input)
      (implies (lst-equals input good-input)
               (lst-equals (interpret-exprs graph good-input) good-output)))
+   good-inputs
    good-outputs))
 
-(define (make-ast heap depth index)
-  (let
-      ([choice-var (list-ref heap index) ])
-    (if (= 0 depth)
-        (begin
-          (assert (>= 4 choice-var))
-          (idx (- choice-var 4)))
-        (let
-            ([next-depth (- depth 1)]
-             [left (+ (* 2 index) 1)]
-             [right (+ (* 2 index) 2)])
-          (cond
-            [(= choice-var 0) (add (make-ast heap next-depth left) (make-ast heap next-depth right))]
-            [(= choice-var 1) (sub (make-ast heap next-depth left) (make-ast heap next-depth right))]
-            [(= choice-var 2) (mul (make-ast heap next-depth left) (make-ast heap next-depth right))]
-            [(= choice-var 3) (div (make-ast heap next-depth left) (make-ast heap next-depth right))]
-            [else (idx (- choice-var 4))])
-          ))))
-
-(define (make-heap depth)
-  (build-list (expt 2 depth) (lambda (_) (choice-variable))))
-
-
-(define (make-graph arity depth)
-  (build-list arity (lambda (_)
-                      (make-ast (make-heap depth) depth 1))))
-
 (define (synthesis-condition inputs graph good-inputs good-outputs bad-outputs)
+  (printf "~a ~a ~a ~a\n" inputs good-inputs good-outputs bad-outputs)
   (and
    (not (ormap (lambda (bad)
                  (lst-equals bad (interpret-exprs graph inputs)))
@@ -81,20 +84,25 @@
    (exists-good-input graph inputs good-inputs good-outputs)))
 
 
-(define (run-synthesis depth good-outputs bad-outputs)
+(define (run-synthesis good-outputs bad-outputs)
   (let
       ([inputs (input-sequence)]
-       [good-inputs (map (lambda (g) (input-sequence)) good-outputs)]
-       [graph (make-graph ARITY DEPTH)])
+       [good-inputs (map (lambda (_) (input-sequence)) good-outputs)]
+       [graph (make-graph ARITY DEPTH)]
+       )
     (synthesize #:forall inputs #:guarantee
-                (synthesis-condition inputs graph good-inputs good-outputs bad-outputs))))
+                (assert (synthesis-condition inputs graph good-inputs good-outputs bad-outputs)))))
+
+(println (synthesis-condition
+          (input-sequence)
+          (make-graph ARITY DEPTH)
+          (list (input-sequence))
+          (list '(1 2 3)) (list '(4 5 6))))
+
+; (println (synthesis-condition
+;           (input-sequence)
+;           (make-graph ARITY DEPTH)
+;           '() '() '()))
 
 
-; (print (make-graph 3 3))
-(print (synthesis-condition
-        '(1 2 3)
-        (make-graph ARITY DEPTH)
-        '(9 8 7)
-        (list '(1 2 3)) (list '(4 5 6))))
-
-; (run-synthesis 3 (list '(1 2 3)) (list '(4 5 6)))
+(run-synthesis (list '(1 2 3)) (list '(4 5 6)))
