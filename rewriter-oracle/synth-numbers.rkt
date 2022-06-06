@@ -8,35 +8,32 @@
 (struct sub (a b) #:transparent)
 (struct mul (a b) #:transparent)
 (struct idx (i) #:transparent)
+(struct constant (n) #:transparent)
 
 (define NUM-OPERATORS 3)
 
-
+(define bv6? (bitvector 6))     ; Bound the input domain to speed up solving
+(define (v6 value) (bv value 6))
 
 (define (interpret input expr)
   (destruct expr
             [ (add a b) (bvadd (interpret input a) (interpret input b)) ] ; 0
             [ (sub a b) (bvsub (interpret input a) (interpret input b)) ] ; 1
             [ (mul a b) (bvmul (interpret input a) (interpret input b)) ] ; 2
-            [ (idx i) (list-ref input (bitvector->integer i)) ]))                          ; 3 -> (3+arity-1)
+            [ (idx i) (list-ref input (bitvector->integer i)) ]           ; 3 -> (OPS+ARITY-1)
+            [ (constant n) n]))                                           ; else k - (OPS+arity)
 
 (define (interpret-exprs exprs input)
   (map (curry interpret input) exprs))
-
-(define bv6? (bitvector 6))     ; Bound the input domain to speed up solving
-(define bv4? (bitvector 4))     ; Bound the AST domain to speed up solving
-(define (v4 value) (bv value 4))
-(define (v6 value) (bv value 6))
 
 (define (input-variable)
   (begin
     (define-symbolic* x bv6?)
     x))
 
-(define (choice-variable input-arity)
+(define (choice-variable)
   (begin
-    (define-symbolic* c bv4?) ; NUM-OPS + INPUT-ARITY <= 15
-    (assert (&& (bvsge c (v4 0)) (bvsle c (v4 (+ NUM-OPERATORS input-arity)))))
+    (define-symbolic* c bv6?)
     c))
 
 (define (build-list n f)
@@ -47,29 +44,33 @@
 (define (input-sequence input-arity)
   (build-list input-arity (lambda (_) (input-variable))))
 
-(define (make-ast heap depth index)
-  (let
-      ([choice-var (list-ref heap index) ])
+(define (make-ast input-arity heap depth index)
+  ; (println (list input-arity depth index heap))
+  (let*
+      ([choice-var (list-ref heap index) ]
+       [const-thresh (v6 (+ NUM-OPERATORS input-arity))])
     (if (= 1 depth)
         (begin
-          (assert (bvsge choice-var (v4 NUM-OPERATORS)))
-          (idx (bvsub choice-var (v4 NUM-OPERATORS))))
+          (if (bvslt choice-var (v6 input-arity))
+              (idx choice-var)
+              (constant (bvsub choice-var (v6 input-arity)))))
         (let
-            ([left (make-ast heap (- depth 1) (+ (* 2 index) 1)) ]
-             [right (make-ast heap (- depth 1) (+ (* 2 index) 2)) ])
+            ([left (make-ast input-arity heap (- depth 1) (+ (* 2 index) 1)) ]
+             [right (make-ast input-arity heap (- depth 1) (+ (* 2 index) 2)) ])
           (cond
-            [(bveq choice-var (v4 0)) (add left right)]
-            [(bveq choice-var (v4 1)) (sub left right)]
-            [(bveq choice-var (v4 2)) (mul left right)]
-            [else (idx (bvsub choice-var (v4 NUM-OPERATORS)))])
+            [(bveq choice-var (v6 0)) (add left right)]
+            [(bveq choice-var (v6 1)) (sub left right)]
+            [(bveq choice-var (v6 2)) (mul left right)]
+            [(bvslt choice-var const-thresh) (idx (bvsub choice-var (v6 NUM-OPERATORS)))]
+            [else (constant (bvsub choice-var const-thresh))])
           ))))
 
 (define (make-heap input-arity depth)
-  (build-list (- (expt 2 depth) 1) (lambda (_) (choice-variable input-arity))))
+  (build-list (- (expt 2 depth) 1) (lambda (_) (choice-variable))))
 
 (define (make-graph out-arity input-arity depth)
   (build-list out-arity (lambda (_)
-                          (make-ast (make-heap input-arity depth) depth 0))))
+                          (make-ast input-arity (make-heap input-arity depth) depth 0))))
 
 (define (lst-equals l1 l2)
   (andmap bveq l1 l2))
@@ -106,13 +107,13 @@
        [good-inputs (map (lambda (_) (input-sequence input-arity)) good-outputs)]
        [out-arity (get-arity (append good-outputs bad-outputs))]
        [graph (make-graph out-arity input-arity depth)]
-       ;  [_ (println (list inputs good-inputs out-arity graph))]
+       [_ (println (list inputs good-inputs out-arity graph))]
        [_ (println (synthesis-condition inputs graph good-inputs bv-good-outputs bv-bad-outputs))]
        )
     (let
         ([model (synthesize #:forall inputs #:guarantee
                             (assert (synthesis-condition inputs graph good-inputs bv-good-outputs bv-bad-outputs))) ])
-      (printf "Good Inputs = ~a\n"  (evaluate good-inputs model))
+      (printf "Good Inputs = ~a\n"  (map (curry map bitvector->integer) (evaluate good-inputs model)))
       (printf (format-asts (evaluate graph model)))))
   (clear-vc!))
 
@@ -122,7 +123,9 @@
               [(add a b) (format "(~a + ~a)" (format-ast a) (format-ast b))]
               [(sub a b) (format "(~a - ~a)" (format-ast a) (format-ast b))]
               [(mul a b) (format "(~a * ~a)" (format-ast a) (format-ast b))]
-              [(idx a) (format "in[~a]" a)]))
+              [(idx a) (format "in[~a]" (bitvector->integer a))]
+              [(constant n) (format "~a" (bitvector->integer n))]
+              ))
   (list-ref (foldl (lambda (ast state)
                      (let
                          ([index (list-ref state 0)]
@@ -131,10 +134,10 @@
                    (list 0 "") asts) 1))
 
 ; TEST CASE 1
-; (run-synthesis
-;  #:input-arity 1
-;  #:ast-depth 2
-;  (list '(4) '(6)) (list '(3))) ; Synthesizing: A + B
+(run-synthesis
+ #:input-arity 1
+ #:ast-depth 2
+ (list '(4) '(6)) (list '(3))) ; Synthesizing: A + B
 
 ; TEST CASE 2
 ; Good Input = [1, 1, 3]
@@ -146,10 +149,10 @@
  #:ast-depth 3
  (list '(1 2 3)) (list '(4 5 6)))
 
-; (run-synthesis
-;  #:input-arity 2
-;  #:ast-depth 1
-;  (list '(1 1) '(2 2)) (list '(1 2) '(2 1))) ; scale_param
+(run-synthesis
+ #:input-arity 2
+ #:ast-depth 1
+ (list '(1 1) '(2 2)) (list '(1 2) '(2 1))) ; scale_param
 
 ; (run-synthesis #:input-arity 2 #:ast-depth 2 (list '(1 1) '(2 2)) (list '(1 2) '(2 1))) ; scale_param
 ; (run-synthesis #:input-arity 2 #:ast-depth 2 (list '(1 1) '(1 2)) (list '(2 1) '(2 2))) ; height_param
@@ -220,7 +223,7 @@
   (define inputs (list (input-variable)))
   (define good-1 (list (input-variable)))
   (define good-2 (list (input-variable)))
-  (define choice (list (choice-variable 1)))
+  (define choice (list (choice-variable)))
 
   (define (execute input)
     (let
@@ -228,9 +231,9 @@
          [a (list-ref input 0)]   ; Drawing from the same input argument.
          [b (list-ref input 0)])  ;
       (cond
-        [(bveq c0 (v4 0)) (bvadd a b)]        ; Expecting c0 = 0
-        [(bveq c0 (v4 1)) (bvsub a b)]
-        [(bveq c0 (v4 2)) (bvmul a b)])))
+        [(bveq c0 (v6 0)) (bvadd a b)]        ; Expecting c0 = 0
+        [(bveq c0 (v6 1)) (bvsub a b)]
+        [(bveq c0 (v6 2)) (bvmul a b)])))
 
   (synthesize #:forall inputs #:guarantee
               (assert (and
@@ -245,5 +248,6 @@
                         )))))
 
 ; (synthesis-example)
+
 
 
