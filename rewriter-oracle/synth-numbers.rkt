@@ -98,7 +98,12 @@
 (define (convert-bv ls)
   (map (lambda (l) (map v6 l)) ls))
 
-(define (run-synthesis #:input-arity input-arity #:ast-depth depth good-outputs bad-outputs)
+(define (debug-print arg)
+  (if #f
+      (println arg)
+      '()))
+
+(define (run-synthesis message #:input-arity input-arity #:ast-depth depth good-outputs bad-outputs)
   (clear-vc!)
   (let*
       ([inputs (input-sequence input-arity)]
@@ -107,12 +112,13 @@
        [good-inputs (map (lambda (_) (input-sequence input-arity)) good-outputs)]
        [out-arity (get-arity (append good-outputs bad-outputs))]
        [graph (make-graph out-arity input-arity depth)]
-       [_ (println (list inputs good-inputs out-arity graph))]
-       [_ (println (synthesis-condition inputs graph good-inputs bv-good-outputs bv-bad-outputs))]
+       [_ (debug-print (list inputs good-inputs out-arity graph))]
+       [_ (debug-print (synthesis-condition inputs graph good-inputs bv-good-outputs bv-bad-outputs))]
        )
     (let
         ([model (synthesize #:forall inputs #:guarantee
                             (assert (synthesis-condition inputs graph good-inputs bv-good-outputs bv-bad-outputs))) ])
+      (printf "Synthesis results for ~a\n" message)
       (printf "Good Inputs = ~a\n"  (map (curry map bitvector->integer) (evaluate good-inputs model)))
       (printf (format-asts (evaluate graph model)))))
   (clear-vc!))
@@ -134,10 +140,10 @@
                    (list 0 "") asts) 1))
 
 ; TEST CASE 1
-(run-synthesis
- #:input-arity 1
- #:ast-depth 2
- (list '(4) '(6)) (list '(3))) ; Synthesizing: A + B
+(run-synthesis "A + B"
+               #:input-arity 1
+               #:ast-depth 2
+               (list '(4) '(6)) (list '(3))) ; Synthesizing: A + B
 
 ; TEST CASE 2
 ; Good Input = [1, 1, 3]
@@ -145,32 +151,33 @@
 ;   out[1] = (in[2] + in[1]) + (in[0] - in[2])
 ;   out[2] = (in[2] * in[1]) - (in[1] - in[1])
 (run-synthesis
+ "Test Case 1"
  #:input-arity 3
  #:ast-depth 3
  (list '(1 2 3)) (list '(4 5 6)))
 
 (run-synthesis
+ "Scale_Param"
  #:input-arity 2
  #:ast-depth 1
- (list '(1 1) '(2 2)) (list '(1 2) '(2 1))) ; scale_param
+ (list '(1 1) '(2 2)) (list '(1 2) '(2 1)))
 
-; (run-synthesis #:input-arity 2 #:ast-depth 2 (list '(1 1) '(2 2)) (list '(1 2) '(2 1))) ; scale_param
-; (run-synthesis #:input-arity 2 #:ast-depth 2 (list '(1 1) '(1 2)) (list '(2 1) '(2 2))) ; height_param
-; (run-synthesis #:input-arity 2 #:ast-depth 2 (list '(1 1) '(2 1)) (list '(1 2) '(2 2))) ; width_param
+(run-synthesis "Height_param" #:input-arity 1 #:ast-depth 2 (list '(1 1) '(1 2)) (list '(2 1) '(2 2)))
+(run-synthesis "Width_param" #:input-arity 1 #:ast-depth 2 (list '(1 1) '(2 1)) (list '(1 2) '(2 2)))
 
-; (run-synthesis #:input-arity 4 #:ast-depth 3 ; rotating_box
-;                (list
-;                 '(10 10 13 14 5)
-;                 '(10 10 14 13 5)
-;                 '(10 10 15 10 5)
-;                 '(10 10 13 14 3)
-;                 '(10 10 14 13 6)
-;                 '(10 10 15 10 -1))
-;                (list
-;                 '(8 10 12 14 5)
-;                 '(8 10 12 13 5)
-;                 '(8 10 13 10 5)
-;                 '(10 10 14 14 5)))
+(run-synthesis "rotating_box" #:input-arity 3 #:ast-depth 3
+               (list
+                '(10 10 13 14 5)
+                '(10 10 14 13 5)
+                '(10 10 15 10 5)
+                '(10 10 13 14 3)
+                '(10 10 14 13 6)
+                '(10 10 15 10 -1))
+               (list
+                '(8 10 12 14 5)
+                '(8 10 12 13 5)
+                '(8 10 13 10 5)
+                '(10 10 14 14 5)))
 
 ; (run-synthesis (list ; rotating_square
 ;                 '(10 10 13 14 5)
